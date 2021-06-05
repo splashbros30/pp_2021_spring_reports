@@ -1,0 +1,580 @@
+\documentclass{report}
+
+\usepackage[T2A]{fontenc}
+\usepackage[utf8]{luainputenc}
+\usepackage[english, russian]{babel}
+\usepackage[pdftex]{hyperref}
+\usepackage[14pt]{extsizes}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{geometry}
+\usepackage{enumitem}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{indentfirst}
+
+\geometry{a4paper,top=2cm,bottom=2cm,left=1cm,right=1cm}
+\setlength{\parskip}{0.5cm}
+\setlist{nolistsep, itemsep=0.3cm,parsep=0pt}
+
+\lstset{language=C++,
+		basicstyle=\footnotesize,
+		keywordstyle=\color{blue}\ttfamily,
+		stringstyle=\color{red}\ttfamily,
+		commentstyle=\color{green}\ttfamily,
+		morecomment=[l][\color{magenta}]{\#}, 
+		tabsize=4,
+		breaklines=true,
+  		breakatwhitespace=true,
+  		title=\lstname,       
+}
+
+\makeatletter
+\renewcommand\@biblabel[1]{#1.\hfil}
+\makeatother
+
+\begin{document}
+
+\begin{titlepage}
+
+\begin{center}
+Министерство науки и высшего образования Российской Федерации
+\end{center}
+
+\begin{center}
+Федеральное государственное автономное образовательное учреждение высшего образования \\
+Национальный исследовательский Нижегородский государственный университет им. Н.И. Лобачевского
+\end{center}
+
+\begin{center}
+Институт информационных технологий, математики и механики
+\end{center}
+
+\vspace{4em}
+
+\begin{center}
+\textbf{\LargeОтчет по лабораторной работе} \\
+\end{center}
+\begin{center}
+\textbf{\Large«Линейная фильтрация изображений (вертикальное разбиение). Ядро Гаусса 3x3 »} \\
+\end{center}
+
+\vspace{4em}
+
+\newbox{\lbox}
+\savebox{\lbox}{\hbox{text}}
+\newlength{\maxl}
+\setlength{\maxl}{\wd\lbox}
+\hfill\parbox{7cm}{
+\hspace*{5cm}\hspace*{-5cm}\textbf{Выполнил:} 
+
+студент группы 381806-2 
+
+Николаев Денис
+
+
+\hspace*{5cm}\hspace*{-5cm}\textbf{Проверил:}
+
+доцент кафедры МОСТ,  кандидат технических наук 
+
+Сысоев А.В. 
+
+}
+\vspace{\fill}
+
+\begin{center} Нижний Новгород \\ 2021 \end{center}
+
+\end{titlepage}
+
+\setcounter{page}{2}
+
+% Введение
+\section*{Введение}
+\addcontentsline{toc}{section}{Введение}
+Фильтром Гаусса называют электронный фильтр, чьей импульсной переходной функцией является функция Гаусса. Фильтр Гаусса спроектирован таким образом, чтобы иметь перерегулирования в переходной функции и максимизировать постоянную времени.Достаточно часто фильтр Гаусса используется с целью снижения шума на фотографии, однако при ресемплинге благодаря нему получается сделать размытие изображения.
+\par
+Стоит отметить весьма ограниченную скорость фильтра Гаусса при реализации с помощью явного метода, особенно заметную на больших объёмах данных. Поэтому имеет смысл разделять обработку изображения между процессами или потоками.
+\newpage
+
+% Постановка задачи
+\section*{Постановка задачи}
+\addcontentsline{toc}{section}{Постановка задачи}
+В данной работе необходимо реализовать линейную фильтрацию изображений\newline
+«Фильтр Гаусса» с вертикальным разбиением. Данная работа должна содержать последовательную и несколько параллельных версий, с использованием следующих технологий: OpenMP, TBB, API std::thread, а также корректность работы алгоритмов будет подтверждена Google C++ Testing Framework.
+\par
+На основе разработанной программы необходимо провести вычислительные эксперименты, сравнив время работы последовательного и параллельных алгоритмов на разных входных данных, затем сделать вывод об эффективности параллельных версий.
+
+\newpage
+
+% Описание алгоритма
+\section*{Описание алгоритма}
+\addcontentsline{toc}{section}{Описание алгоритма}
+Алгоритм фильтрации Гаусса состоит из двух шагов.
+\par
+Первый шаг:
+\par
+Нужно создать ядро Гаусса, в процессе создания которого, по определению, должны учавствовать два элемента: радиус и сигма. Используя два этих элемента и, при помощи определённой формулы, инициализируем ячейки ядра Гаусса. Затем это ядро необходимо нормировать.
+\par
+Второй шаг:
+\par
+Нужно применить ядро, которое мы получили на первом шаге, к каждому пикселю данного нам изображения:
+
+    -    для каждого пикселя исходного изображения рассматривается область соседних пикселей. Размер этой области зависит от размера ядра Гаусса.
+
+    -    далее мы обходим все значения из этой области. Значение каждого соседнего пикселя умножается на значение из соответствующей ячейки в ядре Гаусса, и полученный результат от произведения прибавляется к результирующему значению цвета пикселя.
+\newpage
+
+% Схема распараллеливания
+\section*{Схема распараллеливания}
+\addcontentsline{toc}{section}{Схема распараллеливания}
+Для того, чтобы распараллелить алгоритм Гаусса, нам необходимо разделить массив значений данного нам изображения по вертикали (по столбцам) на доп.массивы, которые будут использованы процессами. Для данного действия нам будет удобнее транспонировать матрицу. 
+\par
+Для каждого процесса работа происходит со своим доп.массивом значений и выполняет для каждого элемента алгоритм, который был описан выше. Для возможности просмотра соседних значений для конкретного подмассива значений, каждому процессу также передаётся целое изображение.
+\par
+После завершения работы с изображением, результаты объединяются в результирующий массив значений для нового изображения. Сложность алгоритма составляет O(hight * width * n * n).
+\begin{itemize}
+\item В случае OpenMP реализации распараллеливание происходит с помощью 
+ \begin{lstlisting}
+ #pragma omp parallel
+\end{lstlisting}
+\item В случае TBB реализации распараллеливание происходит с помощью:
+\begin{lstlisting}
+tbb::parallel_for
+\end{lstlisting}
+
+\end{itemize}
+\newpage
+
+% Описание программной реализации
+\section*{Описание программной реализации}
+\addcontentsline{toc}{section}{Описание программной реализации}
+Создание функции Matrix как вектора векторов:
+\begin{lstlisting}
+using Matrix = std::vector<std::vector<double>>;
+\end{lstlisting}
+Создание матрицы необходимого нам размера, которая заполняется значениями от 0 до 255:
+\begin{lstlisting}
+Matrix createrandmatrix(int i, int j);
+\end{lstlisting}
+В качестве входных параметров функция принимает:
+\begin{itemize}
+\item i - кол-во строк.
+\item j - кол-во столбцов.
+\end{itemize}
+Транспонирование матрицы:
+\begin{lstlisting}
+std::vector<double> transposition(const std::vector<double>& matrix,
+    int i, int j);
+\end{lstlisting}
+В качестве входных параметров функция принимает:
+\begin{itemize}
+\item matrix - ссылка на вектор, в котором находятся значения пикселей данного нам изображения.
+\item i - кол-во строк.
+\item j - кол-во столбцов.
+\end{itemize}
+Вывод матрицы на экран:
+\begin{lstlisting}
+void printMatrix(Matrix img, int i, int j);
+\end{lstlisting}
+Функция, формирующая ядро Гаусса:
+\begin{lstlisting}
+Matrix gengausskernel(int R, int beta)
+\end{lstlisting}
+В качестве входных параметров функция принимает:
+\begin{itemize}
+\item R - радиус.
+\item beta - сигма.
+\end{itemize}
+Функция последовательной линейной фильтрации изображения фильтром Гаусса:
+\begin{lstlisting}
+Matrix sequentialgaussfilt(Matrix Image, int i, int j,
+    int R, double beta);
+\end{lstlisting}
+В качестве входных параметров функция принимает:
+\begin{itemize}
+\item Image - ссылка на матрицу, в которой находятся значения пикселей исходного изображения.
+\item i - кол-во строк.
+\item j - кол-во столбцов.
+\item R - радиус.
+\item beta - сигма.
+\end{itemize}
+Функция параллельной линейной фильтрации изображения фильтром Гаусса:
+\begin{lstlisting}
+Matrix parallelgaussfilt(Matrix Image, int i, int j,
+    int R, double beta);
+\end{lstlisting}
+В качестве входных параметров функция принимает:
+\begin{itemize}
+\item Image - ссылка на матрицу, в которой находятся значения пикселей исходного изображения.
+\item i - кол-во строк.
+\item j - кол-во столбцов.
+\item R - радиус.
+\item beta - сигма.
+\end{itemize}
+\newpage
+
+% Описание экспериментов
+\section*{Описание экспериментов}
+\addcontentsline{toc}{section}{Описание экспериментов}
+Эксперименты проводились на следующем оборудовании: 
+\begin{itemize}
+\item Процессор:Intel(R) Core(TM) i5-9300H CPU @ 2.40GHz   2.40 GHz, ядер: 4;
+\item Оперативная память: 16,0 GB;
+\item ОС: Microsoft Windows 10 Home.
+\end{itemize}
+Результаты экспериментов приведены в таблице:
+\begin{table}[!h]
+\caption{Результаты вычислительных экспериментов}
+\centering
+\begin{tabular}{llllll}
+Размер & Количество потоков & OpenMp & TBB & Послед. \\
+1500x1000 & 2 & 0.0338538 & 0.0287641 & 0.100645\\
+2000x500 & 4 & 0.0360576 & 0.0310099 & 0.109766\\
+\end{tabular}
+\end{table}
+\par
+Для подтверждения корректности в программе содержится набор тестов(5 штук), разработанных с помощью использования Google C++ Testing Framework.
+
+По результатам эксперимента, можно сделать вывод о том, что параллельнык версии работают быстрее последовательной. Самой быстрой оказалась TBB версия, на втором месте OpenMp версия, и затем идёт последовательная реализация.
+\par
+Kорректность работы программы также хорошо показывает наглядный пример заблюренной картинки.
+\newpage
+
+% Заключение
+\section*{Заключение}
+\addcontentsline{toc}{section}{Заключение}
+В ходе выполнения работы была успешна реализована фильтрация изображения методом Гаусса в последовательном и параллельных вариантах. 
+\par 
+Основной задачей лабораторной работы была реализация эффективной параллельной версии. Эта цель была успешно достигнута, что подтверждается результатами экспериментов, проведенных в ходе работы. 
+\par 
+Кроме того, были разработаныя тесты, созданные для данного программного проекта с использованием Google C++ Testing Framework и необходимые для подтверждения корректности работы программы и для демонстрации функционала.
+\newpage
+
+% Список литературы
+\begin{thebibliography}{1}
+\addcontentsline{toc}{section}{Список литературы}
+\bibitem{Gergel}
+Гергель В. П., Стронгин Р. Г. Основы параллельных вычислений для многопроцессорных вычислительных систем. – 2003.
+\bibitem{GergeL}
+Гергель В. П. Теория и практика параллельных вычислений. – 2007. 
+\bibitem{Gaussian}
+Фильтр Гаусса: URL: https://habr.com/ru/post/142818/
+\bibitem{Algorithm}
+URL: https://techcave.ru/posts/66-filtry-v-opencv-average-i-gaussianblur.html
+\end{thebibliography}
+\newpage
+
+% Приложение
+\section*{Приложение}
+\addcontentsline{toc}{section}{Приложение}
+\begin{lstlisting}
+							// main.cpp
+// Copyright 2021 Nikolaev Denis
+#include <gtest/gtest.h>
+#include <omp.h>
+#include <tbb/tick_count.h>
+#include <vector>
+#include<iostream>
+#include "./LinealFiltr.h"
+
+TEST(gaus_filt_Test, invalid_values) {
+    int i = 0;
+    int j = -2;
+    ASSERT_ANY_THROW(createrandmatrix(i, j));
+}
+
+TEST(gaus_filt_Test, testforpp) {
+    int i = 1200;
+    int j = 450;
+    double beta = 7;
+    int R = 2;
+    Matrix imagewGauss(i, std::vector<double>(j));
+    Matrix imagewGaussParallel(i, std::vector<double>(j));
+    Matrix image(i, std::vector<double>(j));
+    Matrix gausskernel = gengausskernel(R, beta);
+    image = createrandmatrix(i, j);
+    imagewGaussParallel = parallelgaussfilt(image, i, j, R, beta);
+}
+
+TEST(gaus_filt_Test, matrix_1x1) {
+    int i = 1;
+    int j = 1;
+    double beta = 5;
+    int R = 1;
+    Matrix imagewGauss(i, std::vector<double>(j));
+    Matrix imagewGaussParallel(i, std::vector<double>(j));
+    Matrix image(i, std::vector<double>(j));
+    Matrix gausskernel = gengausskernel(R, beta);
+    image = createrandmatrix(i, j);
+    imagewGauss = sequentialgaussfilt(image, i, j, R, beta);
+    imagewGaussParallel = parallelgaussfilt(image, i, j, R, beta);
+    printMatrix(image, i, j);
+    printMatrix(imagewGauss, i, j);
+    ASSERT_NO_THROW(createrandmatrix(i, j));
+    ASSERT_EQ(imagewGauss, imagewGaussParallel);
+}
+
+TEST(gaus_filt_Test, matrix_1500x1000x5thr) {
+    int i = 1200;
+    int j = 450;
+    double beta = 7;
+    int R = 2;
+    Matrix imagewGauss(i, std::vector<double>(j));
+    Matrix imagewGaussParallel(i, std::vector<double>(j));
+    Matrix image(i, std::vector<double>(j));
+    Matrix gausskernel = gengausskernel(R, beta);
+    image = createrandmatrix(i, j);
+    omp_set_num_threads(2);
+    double seq, paral;
+    double start, end;
+    start = omp_get_wtime();
+    imagewGauss = sequentialgaussfilt(image, i, j, R, beta);
+    end = omp_get_wtime();
+    seq = end - start;
+    start = omp_get_wtime();
+    imagewGaussParallel = parallelgaussfilt(image, i, j, R, beta);
+    end = omp_get_wtime();
+    paral = end - start;
+    // printMatrix(image, i, j);
+    // printMatrix(imagewGauss, i, j);
+    ASSERT_EQ(imagewGauss, imagewGaussParallel);
+    std::cout << "Sequential: " << seq << "  Parallel: " << paral << std::endl;
+}
+
+TEST(gaus_filt_Test, matrix_2000x500x10thr) {
+    int i = 2000;
+    int j = 500;
+    double beta = 7;
+    int R = 2;
+    Matrix imagewGauss(i, std::vector<double>(j));
+    Matrix imagewGaussParallel(i, std::vector<double>(j));
+    Matrix image(i, std::vector<double>(j));
+    Matrix gausskernel = gengausskernel(R, beta);
+    image = createrandmatrix(i, j);
+    omp_set_num_threads(4);
+    double seq, paral;
+    double start, end;
+    start = omp_get_wtime();
+    imagewGauss = sequentialgaussfilt(image, i, j, R, beta);
+    end = omp_get_wtime();
+    seq = end - start;
+    start = omp_get_wtime();
+    imagewGaussParallel = parallelgaussfilt(image, i, j, R, beta);
+    end = omp_get_wtime();
+    paral = end - start;
+    // printMatrix(image, i, j);
+    // printMatrix(imagewGauss, i, j);
+    ASSERT_EQ(imagewGauss, imagewGaussParallel);
+    std::cout << "Sequential: " << seq << "  Parallel: " << paral << std::endl;
+}
+
+TEST(gaus_filt_Test, matrix_3x3) {
+    int i = 3;
+    int j = 3;
+    double beta = 7;
+    int R = 2;
+    Matrix imagedef(i, std::vector<double>(j));
+    Matrix imagewGauss(i, std::vector<double>(j));
+    Matrix imagewGaussParallel(i, std::vector<double>(j));
+    Matrix imagecont(i, std::vector<double>(j));
+    Matrix gausskernel = gengausskernel(R, beta);
+    imagedef[0][0] = 122;
+    imagedef[1][0] = 241;
+    imagedef[2][0] = 42;
+    imagedef[0][1] = 146;
+    imagedef[1][1] = 211;
+    imagedef[2][1] = 201;
+    imagedef[0][2] = 107;
+    imagedef[1][2] = 158;
+    imagedef[2][2] = 23;
+
+    imagecont[0][0] = 100;
+    imagecont[1][0] = 125;
+    imagecont[2][0] = 110;
+    imagecont[0][1] = 95;
+    imagecont[1][1] = 80;
+    imagecont[2][1] = 105;
+    imagecont[0][2] = 95;
+    imagecont[1][2] = 75;
+    imagecont[2][2] = 60;
+
+    imagewGauss = sequentialgaussfilt(imagedef, i, j, R, beta);
+    imagewGaussParallel = parallelgaussfilt(imagedef, i, j, R, beta);
+    // printMatrix(gausskernel, 2 * R + 1, 2 * R + 1);
+    // printMatrix(imagedef, i, j);
+    // printMatrix(imagewGauss, i, j);
+    // printMatrix(imagecont, i, j);
+    ASSERT_EQ(imagecont, imagewGauss);
+    ASSERT_EQ(imagecont, imagewGaussParallel);
+    ASSERT_EQ(imagewGauss, imagewGaussParallel);
+}
+
+\end{lstlisting}
+\begin{lstlisting}
+							// LinealFiltr.cpp
+// Copyright 2021 Nikolaev Denis
+#include "../../../modules/task_3/nikolaev_d_lineal_filtration_gauss_vertic/LinealFiltr.h"
+
+int clamp(int n, int upper, int lower) {
+    return n <= lower ? lower : n >= upper ? upper : n;
+}
+
+Matrix createrandmatrix(int i, int j) {
+    if ((i <= 0) || (j <= 0))
+        throw std::invalid_argument("Invalid size of Matrix");
+    std::mt19937 gen;
+    gen.seed(static_cast<int>(time(0)));
+    Matrix def(i, std::vector<double>(j));
+    for (int k = 0; k < i; k++) {
+        for (int t = 0; t < j; t++) {
+            def[k][t] = gen() % 255;
+        }
+    }
+    return def;
+}
+
+std::vector<double> transposition(const std::vector<double>& matrix,
+    int i, int j) {
+    std::vector<double> result(i * j);
+    for (int k = 0; k < i; k++) {
+        for (int t = 0; t < j; t++) {
+            result[k + t * i] = matrix[k * j + t];
+        }
+    }
+    return result;
+}
+
+void printMatrix(Matrix img, int i, int j) {
+    std::cout << "Matrix" << std::endl;
+    for (int k = 0; k < i; k++) {
+        for (int t = 0; t < j; t++) {
+            std::cout << img[k][t] << " ";
+        }
+        std::cout << std::endl;
+    }
+    std::cout << std::endl;
+}
+
+Matrix gengausskernel(int R, int beta) {
+    const int size = 2 * R + 1;
+    double normSum = 0;
+    Matrix vecKernel(size, std::vector<double>(size));
+    for (int k = -R; k <= R; k++) {
+        for (int t = -R; t <= R; t++) {
+            vecKernel[k + R][t + R] =
+                exp(-(k * k + t * t) / (beta * beta));
+            normSum += vecKernel[k + R][t + R];
+        }
+    }
+    for (int k = 0; k < size; k++) {
+        for (int t = 0; t < size; t++) {
+            vecKernel[k][t] /= normSum;
+        }
+    }
+    return vecKernel;
+}
+
+Matrix sequentialgaussfilt(Matrix Image, int i, int j,
+    int R, double beta) {
+    Matrix resImg(i, std::vector<double>(j));
+    Matrix vecKernel = gengausskernel(R, beta);
+    for (int x = 0; x < j; x++) {
+        for (int y = 0; y < i; y++) {
+            int resValue = 0;
+            for (int k = -R; k <= R; k++) {
+                for (int t = -R; t <= R; t++) {
+                    int x_ = clamp(x + t, i - 1, 0);
+                    int y_ = clamp(y + t, j - 1, 0);
+                    double value = Image[y_][x_];
+                    resValue += value * vecKernel[k + R][t + R];
+                }
+            }
+            resValue = clamp(resValue, 255, 0);
+            resImg[y][x] = resValue;
+        }
+    }
+    return resImg;
+}
+
+Matrix parallelgaussfilt(Matrix Image, int i, int j,
+    int R, double beta) {
+    Matrix resImg(i, std::vector<double>(j));
+    Matrix vecKernel = gengausskernel(R, beta);
+
+    tbb::parallel_for(0, j, [&](int x) {
+        tbb::parallel_for(0, i, [&](int y){
+            int resValue = 0;
+            for (int k = -R; k <= R; k++) {
+                for (int t = -R; t <= R; t++) {
+                    int x_ = clamp(x + t, i - 1, 0);
+                    int y_ = clamp(y + t, j - 1, 0);
+                    double value = Image[y_][x_];
+                    resValue += value * vecKernel[k + R][t + R];
+                }
+            }
+            resValue = clamp(resValue, 255, 0);
+            resImg[y][x] = resValue;
+            });
+        });
+    return resImg;
+}
+
+Matrix parallelgaussfilt(Matrix Image, int i, int j,
+    int R, double beta) {
+    Matrix resImg(i, std::vector<double>(j));
+    Matrix vecKernel = gengausskernel(R, beta);
+#pragma omp parallel
+    {
+        #pragma omp for schedule(static)
+        for (int x = 0; x < j; x++) {
+            for (int y = 0; y < i; y++) {
+                int resValue = 0;
+                for (int k = -R; k <= R; k++) {
+                    for (int t = -R; t <= R; t++) {
+                        int x_ = clamp(x + t, i - 1, 0);
+                        int y_ = clamp(y + t, j - 1, 0);
+                        double value = Image[y_][x_];
+                        resValue += value * vecKernel[k + R][t + R];
+                    }
+                }
+                resValue = clamp(resValue, 255, 0);
+                resImg[y][x] = resValue;
+            }
+        }
+    }
+    return resImg;
+}
+
+\end{lstlisting}
+\begin{lstlisting}
+							// LinealFiltr.h
+// Copyright 2021 Nikolaev Denis
+#pragma once
+#ifndef MODULES_TASK_3_NIKOLAEV_D_LINEAL_FILTRATION_GAUSS_VERTIC
+#define MODULES_TASK_3_NIKOLAEV_D_LINEAL_FILTRATION_GAUSS_VERTIC
+
+#include <tbb/parallel_for.h>
+#include <cmath>
+#include <stdexcept>
+#include <algorithm>
+#include <vector>
+#include <random>
+#include <ctime>
+#include <iostream>
+
+using Matrix = std::vector<std::vector<double>>;
+
+int clamp(int n, int upper, int lower);
+Matrix createrandmatrix(int i, int j);
+std::vector<double> transposition(const std::vector<double>& matrix,
+    int i, int j);
+void printMatrix(Matrix img, int i, int j);
+Matrix gengausskernel(int R, int beta);
+Matrix sequentialgaussfilt(Matrix Image, int i, int j,
+    int R, double beta);
+Matrix parallelgaussfilt(Matrix Image, int i, int j,
+    int R, double beta);
+#endif  // MODULES_TASK_3_NIKOLAEV_D_LINEAL_FILTRATION_GAUSS_VERTIC
+
+\end{lstlisting}
+\end{document}
